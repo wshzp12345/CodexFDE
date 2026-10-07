@@ -69,7 +69,7 @@ def create_release_index(runtime_dir, task_id, *, cold_start=None, product=None,
     for label, recorded in (('pre_eval', pre), ('post_eval', result)):
         if label in references:
             try:
-                actual = json.loads((output / references[label]['path']).read_text(encoding='utf-8'))
+                actual = json.loads((output / references[label]['path']).resolve().read_text(encoding='utf-8'))
                 if actual.get('summary') != recorded.get('summary'):
                     gaps.append(label + '_summary_mismatch')
                 if label == 'post_eval' and actual.get('results') != result.get('results'):
