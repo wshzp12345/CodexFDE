@@ -51,29 +51,74 @@ def isolated_report_contract_is_honest() -> str:
 
 
 def bootstrap_evidence_is_honest() -> str:
-    from workbench import bootstrap
-    assert hasattr(bootstrap, "BootstrapLedger"), "L01 工作台任务与证据账能力尚未实现"
-    BootstrapLedger = bootstrap.BootstrapLedger
+    import json
+    import subprocess
+    import sys
+
     with tempfile.TemporaryDirectory(prefix="l01-eval-") as temporary:
         root = Path(temporary)
-        ledger = BootstrapLedger(root / "data")
-        ledger.initialize("eval-fixture")
-        ledger.add_project("PERSONAL-WORKBENCH", "验收夹具")
+
+        def cli(operation, *arguments, expected_code=0):
+            result = subprocess.run(
+                [sys.executable, "-B", "-X", "utf8", "-m", "workbench.cli", operation,
+                 "--runtime-dir", str(root / "data"), *arguments],
+                cwd=Path(__file__).resolve().parents[1], capture_output=True,
+                text=True, encoding="utf-8", timeout=30, check=False,
+            )
+            assert result.returncode == expected_code, result.stdout + result.stderr
+            payload = json.loads(result.stdout)
+            assert payload["ok"] == (expected_code == 0), payload
+            return payload
+
+        cli("workbench-init", "--name", "eval-fixture", "--owner", "fixture-builder")
+        cli("workbench-project-add", "--project-id", "PERSONAL-WORKBENCH",
+            "--name", "验收夹具", "--path", str(root), "--purpose", "自动测试，不是学生证据")
         spec = root / "spec.md"
         spec.write_text("验收夹具：缺证据时失败", encoding="utf-8")
-        ledger.create_task("PERSONAL-WORKBENCH", "CASE-WB-L01-001", "验收证据账", str(spec), problem_file=str(spec))
-        assert not ledger.status(require_red_green_evidence=True)["ok"]
-        for phase, code, minute in (("red", 1, 0), ("diff", 0, 1), ("green", 0, 2)):
+        task_id = "CASE-WB-L01-001"
+        cli("workbench-task-create", "--project-id", "PERSONAL-WORKBENCH",
+            "--task-id", task_id, "--requirement-id", task_id, "--request", "验收证据账",
+            "--actor", "fixture-builder", "--spec-file", str(spec), "--problem-file", str(spec))
+        status_args = ("--require-project", "PERSONAL-WORKBENCH", "--require-task", task_id)
+        missing = cli("workbench-status", *status_args, "--require-red-green-evidence", expected_code=1)
+        assert missing["error_code"] == "same_command_red_diff_green_missing"
+
+        # Satisfy the current CLI's design/Spec gates with explicitly synthetic material.
+        material = {"schema_version": "1.0", "goal": "自动测试夹具，不是学生证据",
+                    "in_scope": ["证据账"], "out_of_scope": ["业务实现"],
+                    "business_constraints": ["不替代人审"], "technical_constraints": ["保留历史"],
+                    "acceptance_criteria": [{"id": "fixture", "expected_effect": "证据可追溯",
+                                             "verification": "CLI 查询"}]}
+        for field in ("architecture", "deployment", "end_to_end", "reuse"):
+            material[field] = {"applicability": "not_applicable", "reason": "仅测试证据账"}
+        output = root / "material.json"
+        output.write_text(json.dumps(material, ensure_ascii=False), encoding="utf-8")
+
+        def evidence(phase, path, command, code=0, *review):
+            return cli("workbench-evidence-add", "--task-id", task_id, "--phase", phase,
+                       "--command-text", command, "--output-file", str(path), "--returncode", str(code),
+                       "--observed-at", "2026-09-05T00:00:00+00:00", *review)
+
+        for phase in ("design", "spec"):
+            evidence(phase, output, "record fixture material")
+            evidence(phase + "_review", output, "synthetic fixture review", 0,
+                     "--reviewer", "fixture-reviewer", "--decision", "approve",
+                     "--review-note", "仅自动测试夹具，不构成本次人工接受")
+        for phase, code in (("red", 1), ("diff", 0), ("green", 0)):
             output = root / (phase + ".txt")
             output.write_text("自动测试夹具，不是学生证据：" + phase, encoding="utf-8")
-            ledger.add_evidence("CASE-WB-L01-001", phase, "git diff" if phase == "diff" else "test same requirement",
-                                str(output), code, f"2026-09-05T00:{minute:02d}:00+00:00")
-        report = ledger.status("PERSONAL-WORKBENCH", "CASE-WB-L01-001", True)
-        assert report["ok"] and report["evidence_complete"]
+            evidence(phase, output, "git diff" if phase == "diff" else "test same requirement", code)
+        report = cli("workbench-status", *status_args, "--require-red-green-evidence")
+        assert report["evidence_complete"]
         assert not report["flowerp_connected"] and report["acceptance"] == "pending_human_review"
-        assert len(report["tasks"][0]["evidence"]) == 3
-        assert not ledger.status(require_task="missing")["ok"]
-        return "参考实现：缺证据失败、同案前红/Diff/后绿可定位，完整性检查不替代人审"
+        history = [item for item in report["evidence"] if item["phase"] in {"red", "diff", "green"}]
+        assert [item["phase"] for item in history] == ["red", "diff", "green"]
+        assert [item["returncode"] for item in history] == [1, 0, 0]
+        assert all(item["output"] == "自动测试夹具，不是学生证据：" + item["phase"] for item in history)
+        assert history[0]["command_text"] == history[2]["command_text"]
+        missing = cli("workbench-status", "--require-task", "missing", expected_code=1)
+        assert missing["error_code"] == "required_task_missing"
+        return "当前 CLI：缺证据失败、同案前红/Diff/后绿可定位，完整性检查不替代人审"
 
 
 
@@ -471,3 +516,18 @@ def web_api_and_persistence_projection_agree():
     with tempfile.TemporaryDirectory(prefix='workbench-api-eval-') as temporary:
         check_required_workbench(Path(temporary))
     return '工作台任务受理、幂等与持久化一致；全绿停在人审；不创建 ERP 数据库'
+
+
+def l08_sales_two_line_success():
+    from workbench.external_project import evaluate_case
+    return evaluate_case("l08_sales_two_line_success")
+
+
+def l08_sales_second_line_shortage():
+    from workbench.external_project import evaluate_case
+    return evaluate_case("l08_sales_second_line_shortage")
+
+
+def l08_sales_second_write_rollback():
+    from workbench.external_project import evaluate_case
+    return evaluate_case("l08_sales_second_write_rollback")
