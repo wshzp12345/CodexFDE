@@ -77,7 +77,6 @@ jobs:
       # B must remove continue-on-error; business and frozen cases remain identical.
       - name: Explicit frozen business gate
         id: business
-        continue-on-error: true
         if: ${{ !cancelled() && steps.environment.outcome == 'success' && steps.sources.outcome == 'success' }}
         shell: bash
         run: |
