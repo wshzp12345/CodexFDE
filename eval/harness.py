@@ -13,6 +13,8 @@ from . import cases
 PROJECT_CASES = frozenset({'illegal_transition_is_blocked', 'purchase_requires_approval', 'stale_stock_count_is_blocked', 'payable_aging_tracks_open_supplier_exposure', 'purchase_request_preserves_reason', 'production_schema_invariants', 'order_total_matches_lines', 'stock_never_negative', 'ecommerce_channel_order_is_idempotent_and_guarded', 'backup_is_restorable', 'bank_statement_control_and_reconciliation', 'channel_callback_lease_is_exclusive_and_bounded', 'multi_location_transfer_conserves_stock', 'inventory_export_is_stable', 'cancellation_releases_reservation', 'receiving_is_idempotent', 'double_entry_fifo_and_subledger_reconciliation', 'purchase_invoice_three_way_match', 'sales_credit_and_atomic_reservation'})
 
 
+PROJECT_CASES = PROJECT_CASES | frozenset(['l08_sales_two_line_success', 'l08_sales_second_line_shortage', 'l08_sales_second_write_rollback'])
+
 @dataclass
 class EvalResult:
     name: str
@@ -56,6 +58,12 @@ EVALS: list[tuple[str, str, Callable[[], str]]] = [
     ("course_assets_present", "observing", cases.course_assets_present),
     ("ecommerce_lineage_is_declared", "observing", cases.ecommerce_lineage_is_declared),
 ]
+
+EVALS.extend([
+    ("l08_sales_two_line_success", "blocking", cases.l08_sales_two_line_success),
+    ("l08_sales_second_line_shortage", "blocking", cases.l08_sales_second_line_shortage),
+    ("l08_sales_second_write_rollback", "blocking", cases.l08_sales_second_write_rollback),
+])
 
 
 def run_suite(suite: str = "all", write_report: bool = True,
